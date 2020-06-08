@@ -1,13 +1,10 @@
 ﻿using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
-using System.Reflection;
-using System.Runtime.CompilerServices;
+using System.Threading;
 
 namespace ClipManager
 {
@@ -21,12 +18,14 @@ namespace ClipManager
     }
     class Program
     {
-        static string TwitchClientID;
+        static string TwitchClientID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
         static string TwitchToken;
         static string UserId;
+        static string Login;
         static string Cursor;
-        static bool Delete;
-        static string RootPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        static bool Download = false;
+        static bool Delete = false;
+        static string RootPath = Environment.CurrentDirectory;
         static void Main(string[] args)
         {
             LoadConfig();
@@ -44,19 +43,25 @@ namespace ClipManager
                     try
                     {
                         var sourceUrl = GetClipUri(clip.id);
-                        Console.WriteLine($"Downloading {clip.id} - {clip.title} by {clip.creator_name}");
-                        DownloadClip(sourceUrl, savePath);
-                        if (Delete)
-                            DeleteClips(new List<string>() { clip.id });
+                        if (Download)
+                        {
+                            Console.WriteLine($"Downloading {clip.id} - {clip.title} by {clip.creator_name}");
+                            DownloadClip(sourceUrl, savePath);
+                        }
                     }
                     catch (Exception ex)
                     {
                         File.AppendAllText(Path.Combine(RootPath, "error.log"), $"{clip.id} download failed: {ex.Message}");
                     }
                 }
-                if (Cursor == null)
-                    break;
+                if (Delete)
+                {
+                    Console.WriteLine($"Deleting {string.Join(',', clips.Select(c => c.id))}");
+                    DeleteClips(clips.Select(c => c.id).ToList());
+                }
                 UpdateCursor();
+                if (!Delete && Cursor == null)
+                    break;
                 clips = GetClips();
             }
         }
@@ -64,25 +69,72 @@ namespace ClipManager
         static void LoadConfig()
         {
             var configPath = Path.Combine(RootPath, "appsettings.json");
-            using var fs = File.OpenRead(configPath);
-            using var fsr = new StreamReader(fs);
-            var config = JObject.Parse(fsr.ReadToEnd());
-            TwitchClientID = config["twitchclientid"]?.ToString();
-            TwitchToken = config["twitchtoken"]?.ToString();
-            Delete = config["delete"]?.ToObject<bool>() == true;
-            Cursor = config["cursor"]?.ToString();
+            bool resume = false;
+            if (File.Exists(configPath))
+            {
+                Console.WriteLine("Session found resume? (y or n):");
+                var resumeResp = Console.ReadLine();
+                resume = resumeResp.ToLower().StartsWith('y');
+                if (resume)
+                {
+                    using var fs = File.OpenRead(configPath);
+                    using var fsr = new StreamReader(fs);
+                    var config = JObject.Parse(fsr.ReadToEnd());
+                    Cursor = config["cursor"]?.ToString();
+
+                    TwitchToken = config["twitchtoken"]?.ToString();
+                    Download = config["download"]?.ToObject<bool>() == true;
+                    Delete = config["delete"]?.ToObject<bool>() == true;
+                }
+            }
+            if (!resume)
+            {
+                if (File.Exists(configPath))
+                    File.Delete(configPath);
+                GetConfig();
+            }
+        }
+
+        static void GetConfig()
+        {
+            Console.WriteLine("Paste in auth token:");
+            TwitchToken = Console.ReadLine().Trim();
+
+            Console.WriteLine("Download (y or n):");
+            var downloadResp = Console.ReadLine();
+            Download = downloadResp.ToLower().StartsWith('y');
+            Console.WriteLine("Delete (y or n):");
+            var deleteResp = Console.ReadLine();
+            Delete = deleteResp.ToLower().StartsWith('y');
+
+            var configPath = Path.Combine(RootPath, "appsettings.json");
+            var config = new JObject()
+            {
+                ["twitchtoken"] = TwitchToken,
+                ["download"] = Download,
+                ["delete"] = Delete
+            };
+            using var fsw = File.OpenWrite(configPath);
+            using var sw = new StreamWriter(fsw);
+            sw.Write(config.ToString());
+            sw.Close();
         }
 
         static void UpdateCursor()
         {
             var configPath = Path.Combine(RootPath, "appsettings.json");
-            using var fsr = File.OpenRead(configPath);
-            using var sr = new StreamReader(fsr);
-            var config = JObject.Parse(sr.ReadToEnd());
-            config["cursor"] = Cursor;
-            fsr.Close();
+            JObject config = new JObject();
+            if (File.Exists(configPath))
+            {
+                using var fsr = File.OpenRead(configPath);
+                using var sr = new StreamReader(fsr);
+                config = JObject.Parse(sr.ReadToEnd());
+                fsr.Close();
 
-            File.Delete(configPath);
+                File.Delete(configPath);
+            }
+            config["cursor"] = Cursor;
+
             using var fsw = File.OpenWrite(configPath);
             using var sw = new StreamWriter(fsw);
             sw.Write(config.ToString());
@@ -98,21 +150,76 @@ namespace ClipManager
             var res = http.GetStringAsync($"https://api.twitch.tv/helix/users").GetAwaiter().GetResult();
             var jtok = JToken.Parse(res);
             UserId = jtok["data"][0]["id"].ToString();
+            Login = jtok["data"][0]["login"].ToString();
         }
 
         static IList<ClipInfo> GetClips()
         {
-            var http = new HttpClient();
-            http.DefaultRequestHeaders.Add("Client-ID", TwitchClientID);
-            http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", TwitchToken);
+            var gql = new JArray()
+            {
+                new JObject()
+                {
+                    ["extensions"] = new JObject()
+                    {
+                        ["persistedQuery"] = new JObject()
+                        {
+                            ["version"] = 1,
+                            ["sha256Hash"] = "b300f79444fdcf2a1a76c101f466c8c9d7bee49b643a4d7878310a4e03944232"
+                        }
+                    },
+                    ["operationName"] = "ClipsManagerTable_User",
+                    ["variables"] = new JObject()
+                    {
+                        ["login"] = Login,
+                        ["limit"] = 5,
+                        ["criteria"] = new JObject()
+                        {
+                            ["sort"] = "VIEWS_DESC",
+                            ["period"] = "ALL_TIME",
+                            ["broadcasterID"] = UserId
+                        }
+                    }
+                }
+            };
+            if (!Delete && !string.IsNullOrWhiteSpace(Cursor))
+            {
+                gql[0]["variables"]["cursor"] = Cursor;
+            }
+            var content = gql.ToString(Newtonsoft.Json.Formatting.None);
+            var ghttp = new HttpClient();
+            ghttp.DefaultRequestHeaders.Add("Client-ID", TwitchClientID);
+            ghttp.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("OAuth", TwitchToken);
+            var res = ghttp.PostAsync("https://gql.twitch.tv/gql", new StringContent(content)).GetAwaiter().GetResult().Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            var jtok = JArray.Parse(res);
+            var retVal = new List<ClipInfo>();
+            bool hasNextPage = jtok[0]["data"]["user"]["clips"]["pageInfo"]["hasNextPage"]?.ToObject<bool>() == true;
+            foreach (dynamic e in jtok[0]["data"]["user"]["clips"]["edges"])
+            {
+                dynamic node = e.node;
+                string creator = node.broadcaster.login;
+                try
+                {
+                    creator = node.curator.login;
+                }
+                catch
+                {
 
-            var url = $"https://api.twitch.tv/helix/clips?broadcaster_id={UserId}&first=100";
-            if (!string.IsNullOrEmpty(Cursor))
-                url += $"&after={Cursor}";
-            var res = http.GetStringAsync(url).GetAwaiter().GetResult();
-            var jtok = JToken.Parse(res);
-            Cursor = jtok["pagination"]["cursor"]?.ToString();
-            return jtok["data"].ToObject<List<ClipInfo>>();
+                }
+                retVal.Add(new ClipInfo
+                {
+                    id = node.slug,
+                    title = node.title,
+                    creator_name = creator,
+                    created_at = node.createdAt,
+                    view_count = node.viewCount
+                });
+                if (!Delete && e.cursor != null && hasNextPage)
+                {
+                    Cursor = e.cursor;
+                }
+            }
+            if (!Delete && !hasNextPage) Cursor = null;
+            return retVal;
         }
 
         static string GetClipUri(string clipId)
@@ -144,7 +251,6 @@ namespace ClipManager
 
         static void DeleteClips(IList<string> clips)
         {
-            Console.WriteLine($"Deleting clip at {clips[0]}");
             var gql = new JArray();
             gql.Add(new JObject()
             {
@@ -169,9 +275,15 @@ namespace ClipManager
             var ghttp = new HttpClient();
             ghttp.DefaultRequestHeaders.Add("Client-ID", TwitchClientID);
             ghttp.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("OAuth", TwitchToken);
-            var res = ghttp.PostAsync("https://gql.twitch.tv/gql", new StringContent(content)).GetAwaiter().GetResult().Content.ReadAsStringAsync().GetAwaiter().GetResult();
-            var jtok = JArray.Parse(res);
-
+            while (true)
+            {
+                var res = ghttp.PostAsync("https://gql.twitch.tv/gql", new StringContent(content)).GetAwaiter().GetResult().Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                var jtok = JArray.Parse(res);
+                if (!res.Contains("error"))
+                    break;
+                else
+                    Thread.Sleep(10000);
+            }
         }
 
         static void DownloadClip(string sourceUrl, string savePath)
