@@ -25,6 +25,7 @@ namespace ClipManager
         static string Cursor;
         static bool Download = false;
         static bool Delete = false;
+        static bool myClips = false;
         static string RootPath = Environment.CurrentDirectory;
         static void Main(string[] args)
         {
@@ -33,7 +34,7 @@ namespace ClipManager
             var folder = Path.Combine(RootPath, "downloads");
             if (!Directory.Exists(folder))
                 Directory.CreateDirectory(folder);
-            var clips = GetClips();
+            var clips = GetClips(myClips);
             while (clips.Count > 0)
             {
                 foreach (var clip in clips)
@@ -85,6 +86,7 @@ namespace ClipManager
                     TwitchToken = config["twitchtoken"]?.ToString();
                     Download = config["download"]?.ToObject<bool>() == true;
                     Delete = config["delete"]?.ToObject<bool>() == true;
+                    myClips = config["myclips"]?.ToObject<bool>() == true;
                 }
             }
             if (!resume)
@@ -106,13 +108,17 @@ namespace ClipManager
             Console.WriteLine("Delete (y or n):");
             var deleteResp = Console.ReadLine();
             Delete = deleteResp.ToLower().StartsWith('y');
+            Console.WriteLine("Search every clip I've made (y) or just my channels clips (n):");
+            var myClipsResp = Console.ReadLine();
+            myClips = myClipsResp.ToLower().StartsWith('y');
 
             var configPath = Path.Combine(RootPath, "appsettings.json");
             var config = new JObject()
             {
                 ["twitchtoken"] = TwitchToken,
                 ["download"] = Download,
-                ["delete"] = Delete
+                ["delete"] = Delete,
+                ["myclips"] = myClips
             };
             using var fsw = File.OpenWrite(configPath);
             using var sw = new StreamWriter(fsw);
@@ -153,8 +159,10 @@ namespace ClipManager
             Login = jtok["data"][0]["login"].ToString();
         }
 
-        static IList<ClipInfo> GetClips()
+        static IList<ClipInfo> GetClips(bool myClips = false)
         {
+            string queryType = myClips ? "curatorID" : "broadcasterID";
+
             var gql = new JArray()
             {
                 new JObject()
@@ -176,7 +184,7 @@ namespace ClipManager
                         {
                             ["sort"] = "VIEWS_DESC",
                             ["period"] = "ALL_TIME",
-                            ["broadcasterID"] = UserId
+                            [queryType] = UserId
                         }
                     }
                 }
