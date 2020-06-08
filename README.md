@@ -1,4 +1,4 @@
-#Download and Delete Twitch Clips
+# Download and Delete Twitch Clips
 
 Important, need to get your twitch token via inspector due to using gql.  You can get a token by going to twitch in chrome.
 While logged in press f12. Go to the **console** tab, and at the cursor type in:
