@@ -30,6 +30,7 @@ namespace ClipManager
         static void Main(string[] args)
         {
             LoadConfig();
+            GetUserID();
             var folder = Path.Combine(RootPath, "downloads");
             if (!Directory.Exists(folder))
                 Directory.CreateDirectory(folder);
@@ -88,7 +89,7 @@ namespace ClipManager
             sw.Close();
         }
 
-        static IList<ClipInfo> GetClips()
+        static void GetUserID()
         {
             var http = new HttpClient();
             http.DefaultRequestHeaders.Add("Client-ID", TwitchClientID);
@@ -97,12 +98,21 @@ namespace ClipManager
             var res = http.GetStringAsync($"https://api.twitch.tv/helix/users").GetAwaiter().GetResult();
             var jtok = JToken.Parse(res);
             UserId = jtok["data"][0]["id"].ToString();
+        }
 
-            res = http.GetStringAsync($"https://api.twitch.tv/helix/clips?broadcaster_id={UserId}&first=100{(!string.IsNullOrEmpty(Cursor) ? $"&after={Cursor}" : "")}").GetAwaiter().GetResult();
-            jtok = JToken.Parse(res);
+        static IList<ClipInfo> GetClips()
+        {
+            var http = new HttpClient();
+            http.DefaultRequestHeaders.Add("Client-ID", TwitchClientID);
+            http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", TwitchToken);
+
+            var url = $"https://api.twitch.tv/helix/clips?broadcaster_id={UserId}&first=100";
+            if (!string.IsNullOrEmpty(Cursor))
+                url += $"&after={Cursor}";
+            var res = http.GetStringAsync(url).GetAwaiter().GetResult();
+            var jtok = JToken.Parse(res);
             Cursor = jtok["pagination"]["cursor"]?.ToString();
-            var retVal = jtok["data"].ToObject<List<ClipInfo>>();
-            return retVal;
+            return jtok["data"].ToObject<List<ClipInfo>>();
         }
 
         static string GetClipUri(string clipId)
