@@ -14,9 +14,14 @@ Download compiled for win10 64-bit here: http://danefairbanks.com/downloads/apps
 ### Experimental version here:
 http://danefairbanks.com/downloads/apps/ClipManager.0.2.zip
 
-Will batch ~ 1000 clips (twitch limitation).  
 Can start processing from a low to high view count.
 Can Limit what view count you process.
+Limit is dependent on sort order.
+
+On a sort of low to high, limit will be the upper bound.
+On a sort of high to low, limit will be the lower bound.
+
+This version batches around 1000 clips (twitch limitation).  Unfortunately if you don't enable deleting processing will be limited to 1000 clips.  I 900 or more clips are processed and delete option is on it will run the processing again.
 
 Common use case: Delete clips with low view count
 Enable deleting, choose low to high option, set limit to 1000.  
