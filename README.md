@@ -5,6 +5,8 @@ While logged in press f12. Go to the **console** tab, and at the cursor type in:
 
 **cookies["auth-token"]**
 
+***AUTH TOKENS ARE LIKE PASSWORDS DO NOT POST ANYWHERE***
+
 This will give you the token. Refer to the image below:
 https://cdn.discordapp.com/attachments/349982179864084491/719497018401357884/unknown.png
 
