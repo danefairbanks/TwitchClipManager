@@ -29,6 +29,11 @@ namespace ClipManager
         static string RootPath = Environment.CurrentDirectory;
         static void Main(string[] args)
         {
+            var jtok = JToken.Parse("[{'data': { 'clip': null }}]");
+            var a = jtok[0]["data"]["clip"];
+            var b = jtok.SelectToken("[0].data.clip");
+            var c = a.Type == JTokenType.Null;
+
             LoadConfig();
             GetUserID();
             var folder = Path.Combine(RootPath, "downloads");
@@ -194,7 +199,7 @@ namespace ClipManager
                         ["limit"] = 5,
                         ["criteria"] = new JObject()
                         {
-                            ["sort"] = "VIEWS_DESC",
+                            ["sort"] = "VIEWS_ASC",
                             ["period"] = "ALL_TIME",
                             [query] = UserId
                         }
