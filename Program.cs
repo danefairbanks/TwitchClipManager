@@ -25,6 +25,7 @@ namespace ClipManager
         static string Cursor;
         static bool Download = false;
         static bool Delete = false;
+        static bool MyClips = false;
         static string RootPath = Environment.CurrentDirectory;
         static void Main(string[] args)
         {
@@ -52,6 +53,8 @@ namespace ClipManager
                     catch (Exception ex)
                     {
                         File.AppendAllText(Path.Combine(RootPath, "error.log"), $"{clip.id} download failed: {ex.Message}");
+                        if (Delete)
+                            throw new Exception($"{clip.id} download failed: {ex.Message}");
                     }
                 }
                 if (Delete)
@@ -85,6 +88,7 @@ namespace ClipManager
                     TwitchToken = config["twitchtoken"]?.ToString();
                     Download = config["download"]?.ToObject<bool>() == true;
                     Delete = config["delete"]?.ToObject<bool>() == true;
+                    MyClips = config["myclips"]?.ToObject<bool>() == false;
                 }
             }
             if (!resume)
@@ -100,6 +104,13 @@ namespace ClipManager
             Console.WriteLine("Paste in auth token:");
             TwitchToken = Console.ReadLine().Trim();
 
+            Console.WriteLine("Types of clips");
+            Console.WriteLine("1 My Clips (clips youve taken)");
+            Console.WriteLine("2 Channel Clips (clips of your channel)");
+            Console.WriteLine("1 or 2:");
+            var myclipResp = Console.ReadLine();
+            MyClips = myclipResp.StartsWith("1");
+
             Console.WriteLine("Download (y or n):");
             var downloadResp = Console.ReadLine();
             Download = downloadResp.ToLower().StartsWith('y');
@@ -112,7 +123,8 @@ namespace ClipManager
             {
                 ["twitchtoken"] = TwitchToken,
                 ["download"] = Download,
-                ["delete"] = Delete
+                ["delete"] = Delete,
+                ["myclips"] = MyClips
             };
             using var fsw = File.OpenWrite(configPath);
             using var sw = new StreamWriter(fsw);
@@ -155,6 +167,7 @@ namespace ClipManager
 
         static IList<ClipInfo> GetClips()
         {
+            var query = MyClips ? "curatorID" : "broadcasterID";
             var gql = new JArray()
             {
                 new JObject()
@@ -176,7 +189,7 @@ namespace ClipManager
                         {
                             ["sort"] = "VIEWS_DESC",
                             ["period"] = "ALL_TIME",
-                            ["broadcasterID"] = UserId
+                            [query] = UserId
                         }
                     }
                 }
@@ -196,9 +209,10 @@ namespace ClipManager
             foreach (dynamic e in jtok[0]["data"]["user"]["clips"]["edges"])
             {
                 dynamic node = e.node;
-                string creator = node.broadcaster.login;
+                string creator = "unknown";
                 try
                 {
+                    creator = node.broadcaster.login;
                     creator = node.curator.login;
                 }
                 catch
