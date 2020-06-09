@@ -10,11 +10,10 @@ https://cdn.discordapp.com/attachments/349982179864084491/719497018401357884/unk
 
 Download compiled for win10 64-bit here: http://danefairbanks.com/downloads/apps/ClipManager.zip
 
-
-Experimental version here:
+## Experimental version features
+### Experimental version here:
 http://danefairbanks.com/downloads/apps/ClipManager.0.2.zip
 
-## Experimental version features
 Will batch ~ 1000 clips (twitch limitation).  
 Can start processing from a low to high view count.
 Can Limit what view count you process.
