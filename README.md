@@ -14,6 +14,13 @@ Download compiled for win10 64-bit here: http://danefairbanks.com/downloads/apps
 
 ## Experimental version features
 ### Experimental version here:
+
+#### 0.4
+http://danefairbanks.com/downloads/apps/ClipManager.0.4.zip
+
+Removed my clips/channel clips ability in favor of stability.  Can do upper and lower limits bounds for view count at the same time.  Will process by date allowing better resume functionality.  A lot more stable, but limitation on missing the least amount of viewed clips over 1000 in a time frame.  If you have close to 1000 average clips a day set Day Interval to 1, if you average less than a 1000 clips a week set Day Interval to 7 you can set it any value between up to your own personal averages.
+
+#### 0.2
 http://danefairbanks.com/downloads/apps/ClipManager.0.2.zip
 
 Can start processing from a low to high view count.
