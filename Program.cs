@@ -146,7 +146,7 @@ namespace ClipManager
                     deleteClips.Clear();
                 }
 
-                options.CurrentDate = options.CurrentDate.AddDays(-2);
+                options.CurrentDate = options.CurrentDate.AddDays(-options.DayInterval);
                 SaveConfig(options);
             } while (options.CurrentDate > lastDate);
 
