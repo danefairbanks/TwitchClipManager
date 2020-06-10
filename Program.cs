@@ -21,15 +21,11 @@ namespace ClipManager
     class Options
     {
         /// <summary>
-        /// Sort Order
-        /// </summary>
-        public bool Ascending { get; set; }
-
-        /// <summary>
         /// Stop at view count, 0 is no limit
         /// </summary>
-        public int Limit { get; set; }
-
+        public int UpperLimit { get; set; }
+        public int LowerLimit { get; set; }
+        public int DayInterval { get; set; }
         /// <summary>
         /// Flag for download
         /// </summary>
@@ -41,14 +37,11 @@ namespace ClipManager
         public bool Delete { get; set; }
 
         /// <summary>
-        /// Flag for clip types
-        /// </summary>
-        public bool MyClips { get; set; }
-
-        /// <summary>
         /// Auth token
         /// </summary>
         public string Token { get; set; }
+
+        public DateTime CurrentDate { get; set; }
     }
 
     class Program
@@ -67,62 +60,98 @@ namespace ClipManager
             var folder = Path.Combine(RootPath, "downloads");
             if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
 
-            bool quit = false;
+            var firstClip = GetFirstClip(Login);
+            if (firstClip.Count < 1)
+            {
+                Console.WriteLine("No clips found");
+                Console.WriteLine("Press any key to exit.");
+                Console.ReadKey();
+                return;
+            }
+            var lastDate = DateTime.Parse(firstClip[0].created_at).Date;
+            options.CurrentDate = DateTime.Now.Date;
+
+            Console.WriteLine($"Oldest Clip on {lastDate}");
             do
             {
                 List<ClipInfo> clips = new List<ClipInfo>();
                 string cursor = null;
-                Console.Write("Getting batched clip info");
+                Console.WriteLine($"Getting batched clips for {options.CurrentDate} to {options.CurrentDate.AddDays(options.DayInterval)}");
+                int count = 0;
                 do
                 {
-                    Console.Write(".");
-                    clips.AddRange(GetClipsGraph(options.MyClips, options.Ascending, ref cursor));
+                    var newClips = GetClipsApi(UserId, options.CurrentDate, options.DayInterval, ref cursor);
+                    clips.AddRange(newClips);
+                    count += newClips.Count;
+
+                    Console.SetCursorPosition(0, Console.CursorTop);
+                    Console.Write($"Count {count}...");
                 } while (!string.IsNullOrEmpty(cursor));
                 Console.WriteLine("Complete.");
 
                 var deleteClips = new List<string>();
                 foreach (var clip in clips)
                 {
-                    if (options.Limit != 0 &&
-                        ((options.Ascending && options.Limit < clip.view_count) ||
-                        (!options.Ascending && options.Limit > clip.view_count)))
+                    if ((options.UpperLimit != 0 && options.UpperLimit < clip.view_count)
+                        || (options.LowerLimit != 0 && options.LowerLimit > clip.view_count))
                     {
-                        Console.WriteLine($"Clip view count exceeds limit {options.Limit}");
-                        quit = true;
-                        break;
+                        Console.WriteLine($"{clip.id} with views {clip.view_count} out of bounds.");
+                        continue;
                     }
+
                     var fileName = SanitizeFile($"v{clip.view_count:00000000}[{clip.created_at}] {clip.title} by {clip.creator_name}-{clip.id}.mp4");
                     var savePath = Path.Combine(folder, fileName);
                     try
                     {
                         if (options.Download)
                         {
-                            Console.WriteLine($"Downloading {clip.id} - {clip.title} by {clip.creator_name}");
+                            Console.Write($"Downloading {clip.id}.");
                             string sourceUrl = GetClipUri(clip.id);
+                            Console.Write(".");
                             DownloadClip(sourceUrl, savePath);
-                            if (options.Delete)
-                                deleteClips.Add(clip.id);
+                            Console.Write(".");
+                            Console.WriteLine("Complete");
                         }
+                        if (options.Delete)
+                            deleteClips.Add(clip.id);
                     }
                     catch (Exception ex)
                     {
                         File.AppendAllText(Path.Combine(RootPath, "error.log"), $"{clip.id} download failed: {ex.Message}" + Environment.NewLine);
+                        Console.WriteLine("Failed");
                     }
                     if (options.Delete && deleteClips.Count > 10)
                     {
-                        Console.WriteLine($"Deleting {string.Join(',', deleteClips)}");
-                        DeleteClips(deleteClips);
-                        deleteClips.Clear();
+                        del();
                     }
                 }
-                if (options.Delete && deleteClips.Count > 10)
+                if (options.Delete && deleteClips.Count > 0)
                 {
-                    Console.WriteLine($"Deleting {string.Join(',', deleteClips)}");
-                    DeleteClips(deleteClips);
+                    del();
+                }
+
+                void del()
+                {
+                    try
+                    {
+                        Console.Write($"Deleting {string.Join(',', deleteClips)}...");
+                        DeleteClips(deleteClips);
+                        Console.WriteLine("Complete.");
+                    }
+                    catch (Exception ex)
+                    {
+                        File.AppendAllText(Path.Combine(RootPath, "error.log"), $"{string.Join(',', deleteClips)} deleting failed: {ex.Message}" + Environment.NewLine);
+                        Console.WriteLine("Failed.");
+                    }
                     deleteClips.Clear();
                 }
-                if (clips.Count < 900) break;
-            } while (options.Delete && !quit);
+
+                options.CurrentDate = options.CurrentDate.AddDays(-2);
+                SaveConfig(options);
+            } while (options.CurrentDate > lastDate);
+
+            Console.WriteLine("Press any key to exit.");
+            Console.ReadKey();
         }
 
         static Options LoadConfig()
@@ -157,39 +186,56 @@ namespace ClipManager
             Console.WriteLine("Paste in auth token:");
             options.Token = Console.ReadLine().Trim();
 
-            Console.WriteLine("Types of clips");
-            Console.WriteLine("1. My Clips (clips youve taken)");
-            Console.WriteLine("2. Channel Clips (clips of your channel)");
-            Console.WriteLine("Type 1 or 2:");
-            string input = Console.ReadLine();
-            options.MyClips = input.StartsWith("1");
-
             Console.WriteLine("Download (y or n):");
-            input = Console.ReadLine();
+            string input = Console.ReadLine();
             options.Download = input.ToLower().StartsWith('y');
 
             Console.WriteLine("Delete (y or n):");
             input = Console.ReadLine();
             options.Delete = input.ToLower().StartsWith('y');
 
-            Console.WriteLine("Sort order by view count");
-            Console.WriteLine("1. Low to high");
-            Console.WriteLine("2. High to low");
-            Console.WriteLine("Type 1 or 2:");
+            Console.WriteLine("Upper limit of view count processing (enter 0 for no limit):");
             input = Console.ReadLine();
-            options.Ascending = input.StartsWith("1");
-
-            Console.WriteLine("Limit processing at view count (enter 0 for no limit):");
-            input = Console.ReadLine();
-            if (int.TryParse(input, out int result))
+            if (int.TryParse(input, out int ul))
             {
-                options.Limit = result;
+                options.UpperLimit = ul;
             }
             else
             {
-                options.Limit = 0;
+                options.UpperLimit = 0;
             }
 
+            Console.WriteLine("Lower limit of view count processing (enter 0 for no limit):");
+            input = Console.ReadLine();
+            if (int.TryParse(input, out int ll))
+            {
+                options.LowerLimit = ll;
+            }
+            else
+            {
+                options.LowerLimit = 0;
+            }
+
+            Console.WriteLine("Day intervals (amount of days to batch):");
+            input = Console.ReadLine();
+            if (int.TryParse(input, out int d))
+            {
+                options.DayInterval = d;
+            }
+            else
+            {
+                options.DayInterval = 7;
+            }
+
+            options.CurrentDate = DateTime.Now.Date;
+
+            SaveConfig(options);
+
+            return options;
+        }
+
+        static void SaveConfig(Options options)
+        {
             var configPath = Path.Combine(RootPath, "appsettings.json");
             var config = JObject.FromObject(options);
 
@@ -203,8 +249,6 @@ namespace ClipManager
             {
                 Console.WriteLine("There was a problem saving configuration");
             }
-
-            return options;
         }
 
         static void GetUserInfo()
@@ -226,68 +270,23 @@ namespace ClipManager
             }
         }
 
-        static IList<ClipInfo> GetClipsGraph(bool myclips, bool ascending, ref string cursor)
+        static void GetUserInfo(string login)
         {
-            var query = myclips ? "curatorID" : "broadcasterID";
-            var sort = ascending ? "VIEWS_ASC" : "VIEWS_DESC";
-            var gql = new JArray()
+            try
             {
-                new JObject()
-                {
-                    ["extensions"] = new JObject()
-                    {
-                        ["persistedQuery"] = new JObject()
-                        {
-                            ["version"] = 1,
-                            ["sha256Hash"] = "b300f79444fdcf2a1a76c101f466c8c9d7bee49b643a4d7878310a4e03944232"
-                        }
-                    },
-                    ["operationName"] = "ClipsManagerTable_User",
-                    ["variables"] = new JObject()
-                    {
-                        ["login"] = Login,
-                        ["limit"] = 5,
-                        ["criteria"] = new JObject()
-                        {
-                            ["sort"] = sort,
-                            ["period"] = "ALL_TIME",
-                            [query] = UserId
-                        }
-                    }
-                }
-            };
-            if (!string.IsNullOrWhiteSpace(cursor))
-                gql[0]["variables"]["cursor"] = cursor;
+                var http = new HttpClient();
+                http.DefaultRequestHeaders.Add("Client-ID", TwitchClientID);
+                http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TwitchToken);
 
-            var content = gql.ToString(Newtonsoft.Json.Formatting.None);
-            var http = GetHttpClient(true);
-            var result = http.PostAsync("https://gql.twitch.tv/gql", new StringContent(content)).GetAwaiter().GetResult().Content.ReadAsStringAsync().GetAwaiter().GetResult();
-            var json = JToken.Parse(result);
-
-            var clips = new List<ClipInfo>();
-            bool hasNextPage = json.SelectToken("[0].data.user.clips.pageInfo.hasNextPage")?.ToObject<bool>() == true;
-            var edges = json.SelectToken("[0].data.user.clips.edges");
-            if (edges == null)
-            {
-                File.AppendAllText(Path.Combine(RootPath, "error.log"), $"[{DateTime.Now}] getting clips failed: payload: {result}" + Environment.NewLine);
+                var res = http.GetStringAsync($"https://api.twitch.tv/helix/users?login={login}").GetAwaiter().GetResult();
+                var jtok = JToken.Parse(res);
+                UserId = jtok["data"][0]["id"].ToString();
+                Login = jtok["data"][0]["login"].ToString();
             }
-            foreach (var edge in edges)
+            catch (Exception ex)
             {
-                clips.Add(new ClipInfo
-                {
-                    id = edge.SelectToken("node.slug")?.ToString(),
-                    title = edge.SelectToken("node.title")?.ToString(),
-                    creator_name = edge.SelectToken("node.curator.login")?.ToString(),
-                    created_at = edge.SelectToken("node.createdAt")?.ToString(),
-                    view_count = edge.SelectToken("node.viewCount")?.ToObject<int>() ?? 0
-                });
-                if (hasNextPage && edge.SelectToken("cursor")?.ToString() != null)
-                {
-                    cursor = edge.SelectToken("cursor")?.ToString();
-                }
+                throw new Exception($"[{DateTime.Now}] GetUserInfo failed.", ex);
             }
-            if (!hasNextPage) cursor = null;
-            return clips;
         }
 
         static string GetClipUri(string clipId)
@@ -373,8 +372,7 @@ namespace ClipManager
             {
                 using var http = new HttpClient();
                 var stream = http.GetStreamAsync(sourceUrl).GetAwaiter().GetResult();
-                if (File.Exists(savePath))
-                    File.Delete(savePath);
+                if (File.Exists(savePath)) File.Delete(savePath);
                 using var fs = new FileStream(savePath, FileMode.CreateNew);
                 stream.CopyTo(fs);
                 fs.Close();
@@ -402,16 +400,18 @@ namespace ClipManager
 
         #region "Unused"
 
-        static IList<ClipInfo> GetClipsApi(ref string cursor)
+        static IList<ClipInfo> GetClipsApi(string userId, DateTime start, int days, ref string cursor)
         {
             var http = new HttpClient();
             http.DefaultRequestHeaders.Add("Client-ID", TwitchClientID);
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", TwitchToken);
-            var url = $"https://api.twitch.tv/helix/clips?broadcaster_id={UserId}&first={100}";
+
+            var end = start.AddDays(days);
+            var uri = new UriBuilder($"https://api.twitch.tv/helix/clips");
+            uri.Query = $"?broadcaster_id={userId}&first={100}&started_at={start:s}Z&ended_at={end:s}Z";
             if (!string.IsNullOrWhiteSpace(cursor))
-                url += $"&after={cursor}";
-            Console.WriteLine($"Getting clips, cursor: {cursor}");
-            var result = http.GetAsync(url).GetAwaiter().GetResult().Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                uri.Query += $"&after={cursor}";
+            var result = http.GetAsync(uri.Uri).GetAwaiter().GetResult().Content.ReadAsStringAsync().GetAwaiter().GetResult();
             Thread.Sleep(1000);
             var json = JToken.Parse(result);
 
@@ -419,9 +419,9 @@ namespace ClipManager
             return json.SelectToken("data")?.ToObject<List<ClipInfo>>();
         }
 
-        static IList<ClipInfo> GetClipCardsGraph(ref string cursor)
+        static IList<ClipInfo> GetFirstClip(string login)
         {
-            Console.WriteLine($"Getting clips, cursor: {cursor}");
+            Console.WriteLine($"Getting First Clip");
             var gql = new JArray()
             {
                 new JObject()
@@ -437,17 +437,16 @@ namespace ClipManager
                     ["operationName"] = "ClipsCards__User",
                     ["variables"] = new JObject()
                     {
-                        ["login"] = Login,
-                        ["limit"] = 10,
+                        ["login"] = login,
+                        ["limit"] = 1,
                         ["criteria"] = new JObject()
                         {
+                            ["sort"] = "CREATED_AT_ASC",
                             ["filter"] = "ALL_TIME"
                         }
                     }
                 }
             };
-            if (!string.IsNullOrWhiteSpace(cursor))
-                gql[0]["variables"]["cursor"] = cursor;
 
             var content = gql.ToString(Newtonsoft.Json.Formatting.None);
             var ghttp = new HttpClient();
@@ -457,7 +456,6 @@ namespace ClipManager
             var result = ghttp.PostAsync("https://gql.twitch.tv/gql", new StringContent(content)).GetAwaiter().GetResult().Content.ReadAsStringAsync().GetAwaiter().GetResult();
             var json = JToken.Parse(result);
             var clips = new List<ClipInfo>();
-            bool hasNextPage = json.SelectToken("[0].data.user.clips.pageInfo.hasNextPage")?.ToObject<bool>() == true;
             var edges = json.SelectToken("[0].data.user.clips.edges");
             if (edges == null)
             {
@@ -473,12 +471,7 @@ namespace ClipManager
                     created_at = edge.SelectToken("node.createdAt")?.ToString(),
                     view_count = edge.SelectToken("node.viewCount")?.ToObject<int>() ?? 0
                 });
-                if (edge.SelectToken("cursor")?.ToString() != null && hasNextPage)
-                {
-                    cursor = edge.SelectToken("cursor")?.ToString();
-                }
             }
-            if (!hasNextPage) cursor = null;
             return clips;
         }
 
