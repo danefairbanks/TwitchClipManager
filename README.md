@@ -13,6 +13,11 @@ https://cdn.discordapp.com/attachments/349982179864084491/719497018401357884/unk
 ## Experimental version features
 ### Experimental version here:
 
+#### 0.5b
+http://danefairbanks.com/downloads/apps/ClipManager.0.5b.zip
+
+lastDate set to statically 2005 (when twitch started according to google)
+
 #### 0.5
 http://danefairbanks.com/downloads/apps/ClipManager.0.5.zip
 
